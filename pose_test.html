@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lowpoint - pose test</title>
+<style>
+  body { font: 14px/1.4 -apple-system, system-ui, sans-serif; margin: 16px; background: #111; color: #eee; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+  button, select, input { font: inherit; }
+  progress { width: 100%; max-width: 480px; height: 14px; }
+  pre { background: #1d1d1d; padding: 8px; white-space: pre-wrap; max-width: 640px; }
+  #view { max-width: 100%; max-height: 70vh; background: #000; display: block; }
+  input[type=range] { width: 320px; max-width: 70vw; }
+</style>
+</head>
+<body>
+<h3>Pose extraction test</h3>
+<div class="row">
+  <input type="file" id="file" accept="video/*">
+  <select id="model"><option value="full">full</option><option value="lite">lite</option></select>
+  <label>fps <input id="fps" type="number" min="1" max="240" step="1" placeholder="auto" style="width:5em"></label>
+  <button id="run">Run</button>
+  <button id="cancel" disabled>Cancel</button>
+</div>
+<div class="row"><progress id="prog" max="1" value="0"></progress> <span id="stage"></span></div>
+<pre id="summary">pick a video</pre>
+<div class="row">
+  <input type="range" id="frame" min="0" max="0" value="0" disabled> <span id="flabel"></span>
+  <button id="dl" disabled>Download JSON</button>
+</div>
+<canvas id="view" width="10" height="10"></canvas>
+<video id="src" muted playsinline preload="auto" style="position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none"></video>
+
+<script type="module">
+import { extractPose, BONES } from './js/pose.js';
+const $ = id => document.getElementById(id);
+let result = null, ctrl = null, fileUrl = null;
+window.__pose = { extractPose, get result() { return result; } };
+
+$('file').onchange = () => {
+  const f = $('file').files[0];
+  if (!f) return;
+  if (fileUrl) URL.revokeObjectURL(fileUrl);
+  fileUrl = URL.createObjectURL(f);
+  $('src').src = fileUrl; $('src').load();
+  $('summary').textContent = `${f.name} (${(f.size / 1e6).toFixed(1)} MB) - press Run`;
+};
+
+$('run').onclick = async () => {
+  const f = $('file').files[0];
+  if (!f) return alert('pick a video');
+  ctrl = new AbortController();
+  $('run').disabled = true; $('cancel').disabled = false;
+  const t0 = performance.now();
+  try {
+    result = await extractPose(f, {
+      model: $('model').value, targetFps: +$('fps').value || undefined, signal: ctrl.signal,
+      onProgress: p => {
+        $('prog').value = p.frac;
+        $('stage').textContent = `${p.stage}${p.n ? ` ${p.i}/${p.n}` : ''}${p.msPerFrame ? ` - ${p.msPerFrame.toFixed(0)} ms/frame` : ''}`;
+      },
+    });
+    const vis = [];
+    for (const fr of result.lm) for (const p of fr) if (!isNaN(p[3])) vis.push(p[3]);
+    const avgVis = vis.reduce((a, b) => a + b, 0) / (vis.length || 1);
+    result.summary = {
+      n: result.n, fps: result.fps, srcFps: result.srcFps, srcFpsMethod: result.srcFpsMethod,
+      size: `${result.w}x${result.h}`, window: `${result.start.toFixed(2)}-${result.end.toFixed(2)} s`,
+      model: result.model, delegate: result.delegate, detected: result.detected,
+      msPerFrame: +result.msPerFrame.toFixed(1), detectMsPerFrame: +result.detectMsPerFrame.toFixed(1),
+      avgVisibility: +avgVis.toFixed(3), totalS: +((performance.now() - t0) / 1000).toFixed(1),
+    };
+    $('summary').textContent = JSON.stringify(result.summary, null, 1);
+    $('frame').max = result.n - 1; $('frame').disabled = false; $('dl').disabled = false;
+    $('frame').value = Math.floor(result.n / 2);
+    drawFrame();
+  } catch (e) {
+    $('summary').textContent = `${e.name}: ${e.message}`;
+    console.error(e);
+  } finally {
+    $('run').disabled = false; $('cancel').disabled = true;
+  }
+};
+$('cancel').onclick = () => ctrl && ctrl.abort();
+
+async function drawFrame() {
+  if (!result) return;
+  const i = +$('frame').value, v = $('src');
+  const t = result.start + (i + 0.5) / result.fps;
+  $('flabel').textContent = `frame ${i} @ ${t.toFixed(3)} s`;
+  await new Promise(res => { v.addEventListener('seeked', res, { once: true }); v.currentTime = t; setTimeout(res, 3000); });
+  const c = $('view'), scale = Math.min(1, 960 / Math.max(result.w, result.h));
+  c.width = Math.round(result.w * scale); c.height = Math.round(result.h * scale);
+  const g = c.getContext('2d');
+  g.drawImage(v, 0, 0, c.width, c.height);
+  const P = result.lm[i];
+  const ok = j => !isNaN(P[j][0]) && P[j][3] > 0.3;
+  g.lineWidth = 3; g.strokeStyle = '#3ff07f';
+  for (const [a, b] of BONES) if (ok(a) && ok(b)) {
+    g.beginPath(); g.moveTo(P[a][0] * c.width, P[a][1] * c.height); g.lineTo(P[b][0] * c.width, P[b][1] * c.height); g.stroke();
+  }
+  g.fillStyle = '#ff4fa0';
+  P.forEach((p, j) => { if (ok(j)) { g.beginPath(); g.arc(p[0] * c.width, p[1] * c.height, 4, 0, 7); g.fill(); } });
+}
+$('frame').oninput = drawFrame;
+
+$('dl').onclick = () => {
+  const { mediaTimes, ...rest } = result;
+  const blob = new Blob([JSON.stringify(rest)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (($('file').files[0] || {}).name || 'pose').replace(/\.[^.]+$/, '') + `.pose.${result.model}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};
+</script>
+</body>
+</html>

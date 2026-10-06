@@ -1,0 +1,13 @@
+# Lowpoint public repo: code + vendored MediaPipe + models only. Personal/pro swing data never goes here.
+media/
+data/
+build/
+*.npz
+*.mp4
+*.mov
+*.MOV
+*.m4v
+*.pose.*.json
+.playwright-mcp/
+.DS_Store
+*.log

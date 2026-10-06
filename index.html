@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b130f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lowpoint">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<title>Lowpoint · swing room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500;1,9..144,600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="grain"></div>
+
+<header class="top">
+  <div class="brand"><span class="mark"></span><h1>Lowpoint</h1><span class="sub">swing room</span></div>
+  <div class="crumbs" id="crumbs"></div>
+  <div class="hbtns">
+    <button class="hbtn lib-btn" id="h-lib">Library</button>
+    <button class="hbtn primary" id="h-new">+ New swing</button>
+    <button class="hbtn" id="h-set" title="Settings &amp; sync" aria-label="Settings and sync">⚙</button>
+  </div>
+  <div class="keys"><kbd>space</kbd> play <kbd>←</kbd><kbd>→</kbd> frame <kbd>1</kbd>–<kbd>4</kbd> phases <kbd>,</kbd><kbd>.</kbd> speed <kbd>F</kbd> fix preview</div>
+</header>
+
+<main class="layout">
+  <aside class="library">
+    <div class="lib-top"><button class="new-btn" id="lib-new">+ New swing</button><button class="hbtn lib-close" id="lib-close" aria-label="Close">✕</button></div>
+    <h2>Your swings</h2>
+    <div id="lib-mine"></div>
+    <h2>Reference swings</h2>
+    <div id="lib-ref"><p class="empty-lib">None analyzed yet.</p></div>
+    <label class="file-btn">+ compare with a video file<input type="file" accept="video/*" id="file-in"></label>
+    <p class="hint">For a pro reference with its own skeleton and auto phase-sync, run<br><code>python build_app.py --ref pro.mp4 --view dtl --club driver --name "…"</code></p>
+  </aside>
+
+  <section class="theater">
+    <div class="bar">
+      <span class="lbl">Compare with</span>
+      <select id="cmp"></select>
+      <span class="lbl">Sync</span>
+      <div class="seg" id="sync"><button data-v="phase" class="on">Phases</button><button data-v="time">Time</button><button data-v="off">Off</button></div>
+      <label class="tog ref" id="ovl-wrap"><input type="checkbox" id="ovl"> Overlay its skeleton on mine</label>
+      <div class="seg ab" id="ab"><button data-v="both" class="on">Both</button><button data-v="a">You</button><button data-v="b">Compare</button></div>
+    </div>
+
+    <div class="onboard" id="onboard" hidden>
+      <div class="ob-card">
+        <div class="ob-ball"></div>
+        <h2>Welcome to Lowpoint</h2>
+        <p>Film a swing on your phone (whole body in frame, face-on or down-the-line), then add it here. The pose and the
+          analysis run on this device.</p>
+        <div class="ob-acts"><button class="act primary big" id="ob-add">Add a swing</button><button class="act big" id="ob-connect">Connect GitHub</button></div>
+        <p class="hint">Connecting a GitHub token syncs your analyzed swings (not the videos) through a private gist, so your other devices see the same library.</p>
+      </div>
+    </div>
+
+    <div class="stages" id="stages">
+      <div class="pane a" id="paneA">
+        <div class="pane-head"><span class="who">YOU</span><span class="title"></span><span class="sub"></span></div>
+        <div class="stage-wrap"><div class="stage"><video muted playsinline preload="auto"></video><canvas></canvas><div class="phase-badge"></div><div class="readout"></div><button class="attach">Attach video</button></div></div>
+      </div>
+      <div class="pane b" id="paneB" hidden>
+        <div class="pane-head"><span class="who">COMPARE</span><span class="title"></span><span class="sub"></span></div>
+        <div class="stage-wrap"><div class="stage"><video muted playsinline preload="auto"></video><canvas></canvas><div class="phase-badge"></div><div class="readout"></div><button class="attach">Attach video</button></div></div>
+        <div class="pane-foot"><input type="range" min="0" value="0" step="1"><div class="mark-btns"></div></div>
+      </div>
+    </div>
+
+    <div class="transport">
+      <div class="btns">
+        <button class="ibtn" id="b-prevph" title="Previous phase">⏮</button>
+        <button class="ibtn" id="b-back" title="Back one frame (←)">◀</button>
+        <button class="ibtn play" id="b-play" title="Play / pause (space)">▶</button>
+        <button class="ibtn" id="b-fwd" title="Forward one frame (→)">▶︎|</button>
+        <button class="ibtn" id="b-nextph" title="Next phase">⏭</button>
+      </div>
+      <div class="timeline" id="timeline"><div class="track"><div class="swingzone"></div><div class="fill"></div></div><div class="head"></div></div>
+      <div class="btns">
+        <div class="seg" id="speed"><button data-v="0.125">⅛×</button><button data-v="0.25" class="on">¼×</button><button data-v="0.5">½×</button><button data-v="1">1×</button></div>
+        <div class="clock" id="clock"></div>
+      </div>
+    </div>
+
+    <div class="review" id="review" hidden>
+      <div class="rv-head"><b>Check the phases</b><span>Scrub or drag a pin, then set each phase to the frame shown. The swing is re-analyzed each time.</span></div>
+      <div class="rv-btns">
+        <button data-ph="address">Set Address here <small></small></button>
+        <button data-ph="top">Set Top here <small></small></button>
+        <button data-ph="impact">Set Impact here <small></small></button>
+        <button data-ph="finish">Set Finish here <small></small></button>
+      </div>
+      <div class="rv-acts"><button class="act" id="rv-discard">Discard</button><button class="act primary" id="rv-save">Save swing</button></div>
+    </div>
+
+    <div class="layers">
+      <label class="tog"><input type="checkbox" data-layer="skel" checked> Skeleton</label>
+      <label class="tog"><input type="checkbox" data-layer="guides" checked> Ideal-position guides</label>
+      <label class="tog fix"><input type="checkbox" data-layer="fix"> Fix preview</label>
+      <label class="tog"><input type="checkbox" data-layer="path"> Hand path</label>
+      <label class="tog"><input type="checkbox" data-layer="readout" checked> Live numbers</label>
+      <label class="tog"><input type="checkbox" data-layer="loop" checked> Loop swing</label>
+      <span class="tools"><span class="lbl">Draw</span>
+        <button class="tool" data-tool="line" title="Drag a line; shows its angle from vertical">／ Line</button>
+        <button class="tool" data-tool="angle" title="Drag the first leg, then click the end of the second">∠ Angle</button>
+        <button class="tool" data-tool="circle" title="Drag from centre">◯ Circle</button>
+        <button class="tool" id="t-clear">Clear</button></span>
+    </div>
+  </section>
+
+  <aside class="insight">
+    <div class="tabs"><button data-tab="diag" class="on">Diagnosis</button><button data-tab="nums">Numbers</button><button data-tab="gal">Gallery</button></div>
+    <div class="tabpane on" id="tab-diag"></div>
+    <div class="tabpane" id="tab-nums"></div>
+    <div class="tabpane" id="tab-gal"></div>
+  </aside>
+</main>
+
+<div class="lightbox" id="lightbox"><img alt=""></div>
+<div class="scrim" id="scrim"></div>
+
+<section class="sheet" id="sheet-new" hidden aria-label="New swing">
+  <div class="grab"></div>
+  <h3>New swing</h3>
+  <div id="new-form">
+    <video id="new-vid" muted playsinline preload="auto"></video>
+    <div class="field col"><span class="lbl">Trim</span>
+      <label class="trim">Start <input type="range" id="trim-s" min="0" max="1" step="0.01" value="0"></label>
+      <label class="trim">End <input type="range" id="trim-e" min="0" max="1" step="0.01" value="1"></label>
+      <span class="trim-v" id="trim-v"></span>
+    </div>
+    <div class="field"><span class="lbl">Camera</span><div class="seg" id="new-view"><button data-v="dtl" class="on">Down-the-line</button><button data-v="faceon">Face-on</button></div></div>
+    <div class="field"><span class="lbl">Club</span><div class="seg" id="new-club"><button data-v="driver" class="on">Driver</button><button data-v="iron">Iron</button></div></div>
+    <div class="field"><span class="lbl">Name</span><input type="text" id="new-name" autocomplete="off" enterkeyhint="done"></div>
+    <div class="field"><span class="lbl">Pose model</span><div class="seg" id="new-model"><button data-v="full" class="on">Accurate</button><button data-v="lite">Fast</button></div></div>
+    <p class="err" id="new-err"></p>
+    <div class="sheet-acts"><button class="act big" data-close>Cancel</button><button class="act primary big" id="new-go">Analyze ▸</button></div>
+  </div>
+  <div id="new-run" hidden>
+    <progress id="new-prog" max="1" value="0"></progress>
+    <p class="hint" id="new-stage"></p>
+    <p class="hint">Keep this screen open. A 4-second clip takes about a minute on a phone.</p>
+    <div class="sheet-acts"><button class="act big" id="new-cancel">Cancel</button></div>
+  </div>
+</section>
+
+<section class="sheet" id="sheet-set" hidden aria-label="Settings and sync">
+  <div class="grab"></div>
+  <h3>Settings &amp; sync</h3>
+  <div class="field col"><span class="lbl">GitHub token</span>
+    <input type="password" id="tok" autocomplete="off" spellcheck="false">
+    <p class="hint">A <a href="https://github.com/settings/tokens/new?scopes=gist&amp;description=Lowpoint" target="_blank" rel="noopener">classic token with only the gist scope</a>. It stays in this browser and is only sent to api.github.com.</p>
+    <div class="sheet-acts left"><button class="act primary" id="tok-save">Connect</button><button class="act" id="sync-now">Sync now</button><button class="act" id="tok-clear">Clear token</button></div>
+    <p class="hint" id="gist-status"></p>
+    <p class="hint" id="sync-status"></p>
+  </div>
+  <div class="field col"><span class="lbl">Clips</span><div id="set-clips"></div></div>
+  <p class="hint" id="set-usage"></p>
+  <div class="sheet-acts"><button class="act big" data-close>Done</button></div>
+</section>
+
+<input type="file" accept="video/*" id="new-in" class="vh">
+<input type="file" accept="video/*" id="attach-in" class="vh">
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
