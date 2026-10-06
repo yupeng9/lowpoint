@@ -570,7 +570,7 @@ function renderLibrary() {
     b.className = "card" + (state.A && state.A.id === item.id ? " active" : "") + (state.B && state.B.id === item.id ? " inB" : "");
     const tags = item.faults.length ? item.faults.map(f => `<span class="tag bad">${esc(f)}</span>`).join("")
       : `<span class="tag ok">no major fault</span>`;
-    b.innerHTML = `<div class="nm">${esc(item.name)}</div><div class="meta">${item.kind === "ref" ? "reference" : /^\d+$/.test(item.id) ? "IMG_" + esc(item.id) : esc(fmtDate(item.created))} · ${esc(item.club)}${srcBadge(item)}</div>`
+    b.innerHTML = `<div class="nm">${esc(item.name)}</div><div class="meta">${item.kind === "ref" ? "reference" : esc(fmtDateTime(item.recorded || item.created)) + (/^\d+$/.test(item.id) ? " · IMG_" + esc(item.id) : "")} · ${esc(item.club)}${srcBadge(item)}</div>`
       + `<div class="tags">${tags}</div><span class="vs" title="Open in the compare pane">+ compare</span>`;
     b.onclick = e => {
       if (e.target.classList.contains("vs")) { if (!state.A || state.A.id !== item.id) setB(item.id).catch(toastErr); }
@@ -579,16 +579,18 @@ function renderLibrary() {
     return b;
   };
   const mine = $("#lib-mine"), ref = $("#lib-ref");
-  const mineItems = state.index.filter(i => i.kind === "mine");
+  const when = i => Date.parse(i.recorded || i.created || "") || 0;
+  const mineItems = state.index.filter(i => i.kind === "mine").sort((a, b) => when(b) - when(a)); // newest first
   if (mineItems.length) mine.replaceChildren(...mineItems.map(mk));
   else mine.innerHTML = `<p class="empty-lib">No swings yet — tap “+ New swing”.</p>`;
   const refs = state.index.filter(i => i.kind === "ref");
   if (refs.length) ref.replaceChildren(...refs.map(mk));
 }
 
-function fmtDate(iso) {
+/** "Oct 4, 2026, 4:28 PM" in the viewer's locale/time zone. */
+function fmtDateTime(iso) {
   const d = iso ? new Date(iso) : null;
-  return d && !isNaN(d) ? d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "new swing";
+  return d && !isNaN(d) ? d.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "date unknown";
 }
 function srcBadge(item) {
   const s = item.srcs || [];
@@ -1149,8 +1151,9 @@ async function runNew() {
       clip = An.analyze(r.lm, { ...opts, frames: { address: f(0.1), top: f(0.45), impact: f(0.6), finish: f(0.85) } });
     }
     const now = new Date();
-    Object.assign(clip, { id: L.newClipId(now), name: $("#new-name").value.trim() || L.defaultName(now), kind: "mine",
-                          practice: false, created: now.toISOString(), videoStart: r.start, srcFps: r.srcFps });
+    const recorded = await import("./js/mediatime.js").then(m => m.recordedTime(nw.file)).catch(() => null);
+    Object.assign(clip, { id: L.newClipId(now), name: $("#new-name").value.trim() || L.defaultName(recorded ? new Date(recorded) : now), kind: "mine",
+                          practice: false, created: now.toISOString(), recorded, videoStart: r.start, srcFps: r.srcFps });
     nw.ctrl = null;
     closeSheet();
     await startReview(clip, nw.file, r, opts);
@@ -1192,8 +1195,8 @@ async function setReviewPhase(k, f) {
     toast("Phases must stay in order: address → top → impact → finish"); renderTimeline(); return;
   }
   const An = await import("./js/analyzer.js");
-  const { id, name, kind, practice, created, videoStart, srcFps } = R.clip;
-  const c = Object.assign(An.analyze(R.r.lm, { ...R.opts, frames: ph }), { id, name, kind, practice, created, videoStart, srcFps });
+  const { id, name, kind, practice, created, recorded, videoStart, srcFps } = R.clip;
+  const c = Object.assign(An.analyze(R.r.lm, { ...R.opts, frames: ph }), { id, name, kind, practice, created, recorded, videoStart, srcFps });
   prepare(c);
   if (state.review !== R) return;
   R.clip = c; state.A = c; paneA.clip = c;

@@ -28,6 +28,7 @@ export function indexEntry(clip, files) {
     id: clip.id, name: clip.name, kind: clip.kind || "mine", view: clip.view, club: clip.club,
     faults: (clip.faults || []).map(f => (typeof f === "string" ? f : f.title)),
     created: clip.created || new Date().toISOString().replace(/\.\d+Z$/, "Z"),
+    ...(clip.recorded ? { recorded: clip.recorded } : {}),
     files: files || { clip: gistFiles(clip.id).clip, stills: gistFiles(clip.id).stills, images: [] },
   };
 }
