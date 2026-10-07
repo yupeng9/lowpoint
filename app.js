@@ -181,10 +181,15 @@ class Pane {
       this.video.removeAttribute("src"); this.video.load();
     } else {
       this.video.src = src.url;
+      this.video.load();
       const ok = await new Promise((res, rej) => {
         this._settle = res;
+        // iOS Safari often never fires `loadeddata` until playback starts, so metadata is enough;
+        // a tiny seek then makes it decode a first frame for the canvas.
         this.video.onloadeddata = () => this.settle(true);
-        this.video.onerror = () => { this._settle = null; rej(new Error("video failed to load")); };
+        this.video.onloadedmetadata = () => { try { this.video.currentTime = 0.001; } catch {} this.settle(true); };
+        this.video.onerror = () => { this._settle = null; rej(new Error("This video couldn't be opened in the browser.")); };
+        setTimeout(() => { if (this._settle === res) { this._settle = null; rej(new Error("The video took too long to load.")); } }, 20000);
       });
       if (!ok) return false;
     }
@@ -1159,8 +1164,13 @@ async function runNew() {
     await startReview(clip, nw.file, r, opts);
     toast(auto ? "Check the four phases, then Save" : "Couldn't find the phases automatically — set them, then Save", 4000);
   } catch (err) {
+    if (state.review && !state.A) endReview();
     newStep("form");
-    if (err.name !== "AbortError") { console.error(err); $("#new-err").textContent = err.message || String(err); }
+    if (err.name !== "AbortError") {
+      console.error(err);
+      openSheet("new");                                   // the sheet may already be closed — show the error
+      $("#new-err").textContent = err.message || String(err);
+    }
   } finally { nw.ctrl = null; }
 }
 
@@ -1171,7 +1181,9 @@ async function startReview(clip, file, r, opts) {
   state.playing = false;
   prepare(clip);
   state.review = { clip, file, r, opts };
-  if (!(await paneA.load(clip, { url: URL.createObjectURL(file), offset: r.start })) || tok !== paneA.gen) return;
+  const ok = await paneA.load(clip, { url: URL.createObjectURL(file), offset: r.start });
+  if (tok !== paneA.gen) return;                          // superseded by another load
+  if (!ok) throw new Error("Couldn't show the video for the phase review.");
   state.A = clip;
   state.pos = Math.max(0, clip.phases.address - 8);
   document.body.classList.add("reviewing");
@@ -1227,9 +1239,11 @@ async function captureStills(file, clip, start) {
   Object.assign(v.style, { position: "fixed", left: "0", top: "0", width: "2px", height: "2px", opacity: "0.01", pointerEvents: "none", zIndex: "-1" });
   v.src = url; document.body.appendChild(v);
   try {
-    await new Promise((res, rej) => {
-      if (v.readyState >= 2) return res();
-      v.onloadeddata = res; v.onerror = () => rej(new Error("could not read the video for stills"));
+    v.load();
+    await new Promise((res, rej) => {                     // metadata is enough: iOS may hold `loadeddata` until play
+      if (v.readyState >= 1) return res();
+      v.onloadedmetadata = v.onloadeddata = res; v.onerror = () => rej(new Error("could not read the video for stills"));
+      setTimeout(() => rej(new Error("the video took too long to load for stills")), 20000);
     });
     const H = Math.min(540, v.videoHeight), W = Math.round(H * v.videoWidth / v.videoHeight);
     const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
