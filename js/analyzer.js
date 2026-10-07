@@ -485,7 +485,7 @@ export const GUIDE_FACEON = [
   ["top", "_hip_sway_away_cm", "Hip slide away from target at top", "cm", [-10, 3, -10, 6], "Turn, don't slide"],
   ["top", "shoulder_turn_proxy_deg", "Shoulder turn at top (proxy)", "°", [80, 110, 65, 115], "Rough: from shoulder width shrink"],
   ["top", "hip_turn_proxy_deg", "Hip turn at top (proxy)", "°", [30, 55, 20, 65], "Rough: from hip width shrink"],
-  ["impact", "hip_slide_toward_target_cm", "Hips ahead of address at impact", "cm", [1, 12, -1, 15], "Pressure moves to the lead side"],
+  ["impact", "hip_slide_toward_target_cm", "Hips ahead of address at impact", "cm", [5, 25, 2, 30], "Pressure moves to the lead side (tour pros: ~15-25 cm)"],
   ["finish", "weight_proxy", "Hips over lead foot at finish", "", [0.8, 1.25, 0.65, 1.35], "0 = trail ankle, 1 = lead ankle"],
 ];
 
