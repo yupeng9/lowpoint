@@ -124,16 +124,31 @@ function phaseList(c) {
   const v = PH.map(k => c.phases[k]);
   return v.every(x => Number.isFinite(x)) ? v : null;
 }
+/* P1–P10 (js/positions.js), cached per clip object (a WeakMap, so nothing leaks into saved/synced clips). */
+const posCache = new WeakMap();
+function positions(c) {
+  if (!c || !c.lm || !phaseList(c) || !window.LPPositions) return [];
+  let v = posCache.get(c);
+  if (!v || v.ph !== phaseList(c).join()) { v = { ph: phaseList(c).join(), list: LPPositions.pPositions(c) }; posCache.set(c, v); }
+  return v.list;
+}
+/* Phase sync knots: all ten P positions when both clips have them (so P3 lines up with P3), else the 4 phases. */
+function syncKnots(A, B) {
+  const pa = positions(A), pb = positions(B);
+  if (pa.length === 10 && pb.length === 10) return [pa.map(p => p.frame), pb.map(p => p.frame)];
+  return [phaseList(A), phaseList(B)];
+}
 function mapFrame(fA) {
   const A = state.A, B = state.B;
   if (!B) return 0;
-  const a = phaseList(A), b = phaseList(B);
+  const [a, b] = syncKnots(A, B);
   let fB;
   if (state.sync === "phase" && a && b) {
+    const m = a.length - 1;
     if (fA <= a[0]) fB = b[0] - (a[0] - fA);
-    else if (fA >= a[3]) fB = b[3] + (fA - a[3]);
+    else if (fA >= a[m]) fB = b[m] + (fA - a[m]);
     else {
-      for (let i = 0; i < 3; i++) if (fA <= a[i + 1]) { fB = b[i] + (fA - a[i]) * (b[i + 1] - b[i]) / Math.max(1, a[i + 1] - a[i]); break; }
+      for (let i = 0; i < m; i++) if (fA <= a[i + 1]) { fB = b[i] + (fA - a[i]) * (b[i + 1] - b[i]) / Math.max(1, a[i + 1] - a[i]); break; }
     }
   } else fB = fA * B.fps / A.fps;
   return clamp(fB, 0, B.n - 1);
@@ -150,7 +165,9 @@ class Pane {
     this.badge = $(".phase-badge", root);
     this.readout = $(".readout", root);
     this.clip = null; this.shown = -1; this.req = -1; this.want = 0; this.url = null; this.gen = 0; this._settle = null;
-    this.offset = 0; this.novideo = false; this.stills = null; // no-video mode: phase stills drawn behind the skeleton
+    this.offset = 0; this.novideo = false;
+    this.stillList = []; // [[frame, dataURL]] sorted: named phase stills + the `frames` map (P positions)
+    this.stills = [];    // no-video mode: [[frame, Image]] drawn dimmed behind the skeleton
     this.ann = []; this.draft = null; this.lastReadout = "";
     this.video.addEventListener("seeked", () => {
       this.shown = this.req;
@@ -160,7 +177,8 @@ class Pane {
   }
   settle(v) { const s = this._settle; this._settle = null; if (s) s(v); }
   /* src: {url, offset} (clip frame i shows at video time (i + 0.5) / fps + offset), or null = no-video mode,
-     where `stills` ({address, top, impact, finish} data URLs) are drawn dimmed behind the skeleton.
+     where `stills` ({address, top, impact, finish, frames?: {"<frame>": url}} data URLs; old files lack `frames`)
+     are drawn dimmed behind the skeleton — the one nearest the current frame. With a video they feed the filmstrip.
      Resolves true once loaded, false if superseded by another load()/unload(). */
   async load(clip, src, stills = null) {
     this.settle(false);
@@ -169,11 +187,8 @@ class Pane {
     this.url = src ? src.url : null;
     this.offset = src ? src.offset || 0 : 0;
     this.novideo = !src;
-    this.stills = null;
-    if (!src && stills) {
-      this.stills = {};
-      for (const k of PH) if (stills[k]) { const im = new Image(); im.src = stills[k]; this.stills[k] = im; }
-    }
+    this.stillList = window.LPPositions ? LPPositions.stillList(stills, clip.phases) : [];
+    this.stills = src ? [] : this.stillList.map(([f, url]) => { const im = new Image(); im.src = url; return [f, im]; });
     this.stage.classList.toggle("novideo", this.novideo);
     this.layout();
     if (this.novideo) {
@@ -204,7 +219,7 @@ class Pane {
   unload() {
     this.settle(false);
     this.clip = null; this.shown = -1; this.req = -1; this.ann = []; this.draft = null;
-    this.novideo = false; this.stills = null; this.stage.classList.remove("novideo");
+    this.novideo = false; this.stills = []; this.stillList = []; this.stage.classList.remove("novideo");
     this.video.onloadeddata = this.video.onerror = null;
     revokeBlob(this.url); this.url = null;
     this.video.removeAttribute("src"); this.video.load();
@@ -290,12 +305,10 @@ class Pane {
     this.drawAnnotations(g, lw);
   }
   drawStill(c, t) {
-    if (!this.stills || !c.phases) return;
     let best = null, bd = Infinity;
-    for (const k of PH) {
-      const im = this.stills[k];
-      if (!im || !im.complete || !im.naturalWidth || !Number.isFinite(c.phases[k])) continue;
-      const d = Math.abs(c.phases[k] - t);
+    for (const [f, im] of this.stills) {
+      if (!im.complete || !im.naturalWidth) continue;
+      const d = Math.abs(f - t);
       if (d < bd) { bd = d; best = im; }
     }
     if (!best) return;
@@ -489,9 +502,10 @@ async function getClip(id) {
    none (no-video mode with the phase stills). Returns {src: {url, offset} | null, stills}. */
 async function openSource(c) {
   const m = await mods().catch(() => null);
+  const devStills = m ? await m.D.get("stills", c.id).then(r => r && r.stills).catch(() => null) : null;
   if (m) {
     const v = await m.D.get("videos", c.id).catch(() => null);
-    if (v && v.blob) return { src: { url: URL.createObjectURL(v.blob), offset: v.offset ?? (c.videoStart || 0) } };
+    if (v && v.blob) return { src: { url: URL.createObjectURL(v.blob), offset: v.offset ?? (c.videoStart || 0) }, stills: devStills };
   }
   if (c.video) {
     try { return { src: { url: await videoUrl(c), offset: 0 } }; } catch (e) { if (!m) throw e; }
@@ -500,10 +514,9 @@ async function openSource(c) {
   const gv = await gistJSON(`video-${c.id}.json`).catch(() => null);
   if (gv && gv.dataURL) {
     const blob = await (await fetch(gv.dataURL)).blob();
-    return { src: { url: URL.createObjectURL(blob), offset: -(c.videoStartFrame || 0) / c.fps } };
+    return { src: { url: URL.createObjectURL(blob), offset: -(c.videoStartFrame || 0) / c.fps }, stills: devStills };
   }
-  const st = await m.D.get("stills", c.id).catch(() => null);
-  const stills = st ? st.stills : await gistJSON(`stills-${c.id}.json`).catch(() => null);
+  const stills = devStills || await gistJSON(`stills-${c.id}.json`).catch(() => null);
   return { src: null, stills };
 }
 
@@ -679,6 +692,116 @@ function renderTimeline() {
   });
   const z = $(".swingzone", tl), a = A.phases.address, f = A.phases.finish;
   z.style.left = `${a / (A.n - 1) * 100}%`; z.style.width = `${(f - a) / (A.n - 1) * 100}%`;
+  $$(".ptick", tl).forEach(p => p.remove());
+  for (const p of positions(A)) {
+    if ([1, 4, 7, 10].includes(p.p)) continue;
+    const t = document.createElement("div");
+    t.className = "ptick"; t.title = p.label;
+    t.style.left = `${(p.frame / (A.n - 1)) * 100}%`;
+    $(".track", tl).appendChild(t);
+  }
+  renderStrip();
+}
+
+/* ------------------------------------------------------------------ P1–P10 filmstrip (pane A)
+   Thumbnail source per position: a stored still at that frame > a frame grabbed from pane A's own video
+   (hidden <video>, same URL) > the skeleton drawn on a dark background. */
+const strip = { key: "", items: [], cur: -1, cw: 0, gen: 0 };
+const thumbCache = new Map();  // clip id -> Map(frame -> dataURL) grabbed from the video
+const THUMB_H = 120;
+function renderStrip() {
+  const el = $("#strip"), A = state.A, ps = positions(A);
+  const key = ps.length ? [A.id, ps.map(p => p.frame).join(), paneA.stillList.length, paneA.novideo, paneA.url].join("|") : "";
+  if (key === strip.key) return;
+  strip.key = key; strip.cur = -1;
+  const gen = ++strip.gen;
+  el.hidden = !ps.length;
+  if (!ps.length) { el.replaceChildren(); strip.items = []; return; }
+  const ar = A.w && A.h ? A.w / A.h : 9 / 16;
+  strip.items = ps.map(p => {
+    const b = document.createElement("button");
+    b.className = "pthumb"; b.title = `${p.label} — frame ${p.frame + 1}`; b.dataset.p = p.p;
+    b.style.setProperty("--ar", ar);
+    b.innerHTML = `<span class="pimg"></span><span class="plbl"><b>${p.short}</b>${esc(LPPositions.LABELS[p.p - 1].replace(/^hands /, ""))}</span>`;
+    b.onclick = () => jump(p.frame);
+    return { p, b };
+  });
+  el.replaceChildren(...strip.items.map(i => i.b));
+  const cache = thumbCache.get(A.id) || new Map();
+  thumbCache.set(A.id, cache);
+  const need = [];
+  for (const it of strip.items) {
+    const st = nearestStill(paneA.stillList, it.p.frame, 1) || (!paneA.novideo && cache.get(it.p.frame));
+    if (st) setThumb(it, st);
+    else { setThumb(it, skeletonThumb(A, it.p.frame, ps)); if (!paneA.novideo && paneA.url) need.push(it); }
+  }
+  if (need.length) grabThumbs(A, paneA.url, paneA.offset, need, cache, gen).catch(e => console.warn("filmstrip thumbnails", e));
+}
+function nearestStill(list, f, tol) {
+  let best = null, bd = tol + 1e-9;
+  for (const [g, url] of list) { const d = Math.abs(g - f); if (d <= bd) { bd = d; best = url; } }
+  return best;
+}
+function setThumb(it, src) {
+  const box = $(".pimg", it.b);
+  if (typeof src === "string") { const im = new Image(); im.alt = ""; im.src = src; box.replaceChildren(im); }
+  else box.replaceChildren(src);
+}
+function skeletonThumb(c, f, ps) {
+  // frame the union of the body over the ten positions, so all thumbnails share one scale
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of ps) for (const j of DOTS) {
+    const q = P(c, p.frame, j); if (!Number.isFinite(q[0]) || !Number.isFinite(q[1])) continue;
+    x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]);
+  }
+  const H = THUMB_H * 2, W = Math.round(H * (c.w / c.h || 9 / 16));
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const g = cv.getContext("2d");
+  g.fillStyle = "#0d1712"; g.fillRect(0, 0, W, H);
+  if (!Number.isFinite(x0)) return cv;
+  const pad = 0.12 * Math.max(x1 - x0, y1 - y0), bw = x1 - x0 + 2 * pad, bh = y1 - y0 + 2 * pad;
+  const s = Math.min(W / bw, H / bh), ox = (W - bw * s) / 2 - (x0 - pad) * s, oy = (H - bh * s) / 2 - (y0 - pad) * s;
+  const X = j => { const q = P(c, f, j); return [ox + q[0] * s, oy + q[1] * s]; };
+  g.lineCap = "round"; g.lineWidth = 4; g.strokeStyle = COL.ok;
+  for (const [a, b] of BONES) { g.beginPath(); g.moveTo(...X(a)); g.lineTo(...X(b)); g.stroke(); }
+  g.fillStyle = "#fff";
+  for (const j of DOTS) { const q = X(j); g.beginPath(); g.arc(q[0], q[1], j < 11 ? 2.5 : 3.5, 0, 7); g.fill(); }
+  return cv;
+}
+async function grabThumbs(c, url, offset, items, cache, gen) {
+  const v = await openHiddenVideo(url);
+  try {
+    if (gen !== strip.gen) return;
+    const H = Math.min(THUMB_H * 2, v.videoHeight), W = Math.round(H * v.videoWidth / v.videoHeight);
+    const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+    const g = cv.getContext("2d");
+    for (const it of items) {
+      await seekVideo(v, (it.p.frame + 0.5) / c.fps + offset);
+      if (gen !== strip.gen) return;
+      g.drawImage(v, 0, 0, W, H);
+      const d = cv.toDataURL("image/jpeg", 0.7);
+      cache.set(it.p.frame, d);
+      setThumb(it, d);
+    }
+  } finally { closeHiddenVideo(v); }
+}
+function updateStrip() {
+  if (!strip.items.length) return;
+  const i = LPPositions.nearestIndex(strip.items.map(it => it.p.frame), state.pos);
+  const el0 = $("#strip");
+  if (i === strip.cur && el0.clientWidth === strip.cw) return;  // re-scroll after a resize too
+  strip.cur = i; strip.cw = el0.clientWidth;
+  strip.items.forEach((it, k) => it.b.classList.toggle("on", k === i));
+  const el = $("#strip"), b = strip.items[i] && strip.items[i].b;
+  if (!b || el.scrollWidth <= el.clientWidth) return;
+  const l = b.offsetLeft - el.offsetLeft, r = l + b.offsetWidth;
+  if (l < el.scrollLeft || r > el.scrollLeft + el.clientWidth) el.scrollTo({ left: l - (el.clientWidth - b.offsetWidth) / 2, behavior: "smooth" });
+}
+function stepP(dir) {
+  const ps = positions(state.A); if (!ps.length) return;
+  const cur = Math.round(state.pos), list = ps.map(p => p.frame);
+  const tgt = dir > 0 ? list.find(v => v > cur) : [...list].reverse().find(v => v < cur);
+  if (tgt != null) jump(tgt);
 }
 function scrubAt(e) {
   const r = $("#timeline").getBoundingClientRect();
@@ -721,6 +844,7 @@ function tick(ts) {
     }
     paneA.draw();
     if (state.B) paneB.draw();
+    updateStrip();
     const f = Math.round(state.pos);
     $(".fill").style.width = `${(state.pos / (A.n - 1)) * 100}%`;
     $(".head", $("#timeline")).style.left = `${(state.pos / (A.n - 1)) * 100}%`;
@@ -870,6 +994,7 @@ function bind() {
     else if (k === "ArrowLeft") { e.preventDefault(); jump(Math.round(state.pos) - (e.shiftKey ? 5 : 1)); }
     else if (k === "ArrowRight") { e.preventDefault(); jump(Math.round(state.pos) + (e.shiftKey ? 5 : 1)); }
     else if ("1234".includes(k) && k.length === 1 && state.A) jump(state.A.phases[PH[+k - 1]]);
+    else if (k === "[" || k === "]") stepP(k === "]" ? 1 : -1);
     else if (k === "," || k === ".") {
       const rates = [0.125, 0.25, 0.5, 1], i = rates.indexOf(state.rate);
       setRate(rates[clamp(i + (k === "." ? 1 : -1), 0, 3)]);
@@ -1042,7 +1167,7 @@ async function deleteClip(id) {
   if (state.A && state.A.id === id) {
     const next = state.index.find(i => i.kind === "mine") || state.index[0];
     if (next) await setA(next.id);
-    else { paneA.unload(); state.A = null; $$(".tabpane").forEach(p => { p.innerHTML = ""; }); renderOnboarding(); }
+    else { paneA.unload(); state.A = null; $$(".tabpane").forEach(p => { p.innerHTML = ""; }); renderTimeline(); renderOnboarding(); }
   }
   renderSettings();
   toast("Deleted");
@@ -1103,6 +1228,11 @@ async function openNew(file) {
   revokeBlob(nw.url); nw.url = URL.createObjectURL(file);
   const { L } = await mods();
   $("#new-name").value = L.defaultName();
+  import("./js/mediatime.js").then(m => m.recordedTime(file)).then(t => {   // name it after when it was filmed
+    if (t && nw.file === file && !$("#new-name").dataset.edited) $("#new-name").value = L.defaultName(new Date(t));
+  }).catch(() => {});
+  $("#new-name").dataset.edited = "";
+  $("#new-name").oninput = () => { $("#new-name").dataset.edited = "1"; };
   $("#new-err").textContent = "";
   newStep("form");
   const v = $("#new-vid");
@@ -1134,6 +1264,7 @@ async function runNew() {
   $("#new-prog").value = 0; $("#new-stage").textContent = "Loading the pose model…";
   nw.ctrl = new AbortController();
   const signal = nw.ctrl.signal;
+  const pv = $("#new-vid"); pv.pause(); pv.removeAttribute("src"); pv.load();  // one less HEVC decoder on iOS
   try {
     const [{ extractPose }, An, { L }] = await Promise.all([import("./js/pose.js"), import("./js/analyzer.js"), mods()]);
     const label = { load: "Opening the video…", fps: "Measuring frame rate…", model: "Loading the pose model…", done: "Analyzing…" };
@@ -1164,8 +1295,12 @@ async function runNew() {
     await startReview(clip, nw.file, r, opts);
     toast(auto ? "Check the four phases, then Save" : "Couldn't find the phases automatically — set them, then Save", 4000);
   } catch (err) {
-    if (state.review && !state.A) endReview();
+    if (state.review) {                                   // startReview failed: drop the draft, restore pane A
+      endReview();
+      if (state.A) setA(state.A.id).catch(() => {}); else paneA.unload();
+    }
     newStep("form");
+    if (nw.url) { pv.onloadedmetadata = null; pv.src = nw.url; pv.currentTime = s; }  // keep the chosen trim
     if (err.name !== "AbortError") {
       console.error(err);
       openSheet("new");                                   // the sheet may already be closed — show the error
@@ -1232,9 +1367,10 @@ function seekVideo(v, t) {
     v.currentTime = clamp(t, 0, Math.max(0, (v.duration || 0) - 0.001));
   });
 }
-/* JPEG stills (~540 px tall) at the four phases, for devices that don't have the video. */
-async function captureStills(file, clip, start) {
-  const url = URL.createObjectURL(file), v = document.createElement("video");
+/* A hidden, muted, inline <video> on `url`, ready to seek (iOS-safe: metadata is enough, then a muted
+   play/pause makes WebKit decode frames). Close with closeHiddenVideo(). */
+async function openHiddenVideo(url) {
+  const v = document.createElement("video");
   v.muted = true; v.playsInline = true; v.setAttribute("playsinline", ""); v.setAttribute("muted", ""); v.preload = "auto";
   Object.assign(v.style, { position: "fixed", left: "0", top: "0", width: "2px", height: "2px", opacity: "0.01", pointerEvents: "none", zIndex: "-1" });
   v.src = url; document.body.appendChild(v);
@@ -1245,16 +1381,43 @@ async function captureStills(file, clip, start) {
       v.onloadedmetadata = v.onloadeddata = res; v.onerror = () => rej(new Error("could not read the video for stills"));
       setTimeout(() => rej(new Error("the video took too long to load for stills")), 20000);
     });
+    try { await Promise.race([v.play(), new Promise(r => setTimeout(r, 1500))]); } catch {}  // muted inline play: makes iOS decode
+    v.pause();
+    return v;
+  } catch (e) { closeHiddenVideo(v); throw e; }
+}
+function closeHiddenVideo(v) { v.pause(); v.removeAttribute("src"); v.load(); v.remove(); }
+
+/* JPEG stills for devices that don't have the video: {address, top, impact, finish, frames: {"<frame>": url}}.
+   The four phases keep their names (old clients read only those); `frames` holds the six in-between P positions
+   (P2/P3/P5/P6/P8/P9). ~540 px tall, q 0.75; the in-between ones shrink if the file would pass ~1 MB. */
+async function captureStills(file, clip, start) {
+  const url = URL.createObjectURL(file);
+  let v = null;
+  try {
+    v = await openHiddenVideo(url);
     const H = Math.min(540, v.videoHeight), W = Math.round(H * v.videoWidth / v.videoHeight);
-    const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
-    const g = cv.getContext("2d"), out = {};
-    for (const k of PH) {
-      await seekVideo(v, (clip.phases[k] + 0.5) / clip.fps + start);
-      g.drawImage(v, 0, 0, W, H);
-      out[k] = cv.toDataURL("image/jpeg", 0.8);
+    const named = Object.fromEntries(PH.map(k => [clip.phases[k], k]));
+    const frames = [...new Set([...PH.map(k => clip.phases[k]), ...positions(clip).map(p => p.frame)])].sort((a, b) => a - b);
+    const out = {}, extra = [];
+    for (const f of frames) {                              // ascending: one forward pass through the video
+      await seekVideo(v, (f + 0.5) / clip.fps + start);
+      const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+      cv.getContext("2d").drawImage(v, 0, 0, W, H);
+      if (f in named) out[named[f]] = cv.toDataURL("image/jpeg", 0.75); else extra.push([f, cv]);
+    }
+    const enc = (cv, q, h) => {
+      if (h >= cv.height) return cv.toDataURL("image/jpeg", q);
+      const c2 = document.createElement("canvas"); c2.height = h; c2.width = Math.round(h * cv.width / cv.height);
+      c2.getContext("2d").drawImage(cv, 0, 0, c2.width, c2.height);
+      return c2.toDataURL("image/jpeg", q);
+    };
+    for (const [q, h] of [[0.75, 540], [0.7, 540], [0.7, 480], [0.6, 480]]) {
+      out.frames = Object.fromEntries(extra.map(([f, cv]) => [String(f), enc(cv, q, h)]));
+      if (JSON.stringify(out).length <= 1e6) break;
     }
     return out;
-  } finally { v.removeAttribute("src"); v.load(); v.remove(); URL.revokeObjectURL(url); }
+  } finally { if (v) closeHiddenVideo(v); URL.revokeObjectURL(url); }
 }
 
 async function saveReview() {
@@ -1265,14 +1428,21 @@ async function saveReview() {
     const stills = await captureStills(R.file, R.clip, R.r.start);
     const { K, srcs, from, ...plain } = R.clip;
     const g = C.toGistClip(plain);
-    await D.put("clips", { id: g.id, clip: g, entry: L.indexEntry(g), synced: false });
-    await D.put("videos", { id: g.id, blob: R.file, offset: R.r.start });
+    let vidOk = true;
+    try { await D.put("videos", { id: g.id, blob: R.file, offset: R.r.start }); }
+    catch (e) {                                           // WebKit: "Error preparing Blob/File data to be stored"
+      console.warn("storing the File failed, retrying as a Blob copy", e);
+      try { await D.put("videos", { id: g.id, blob: new Blob([await R.file.arrayBuffer()], { type: R.file.type || "video/quicktime" }), offset: R.r.start }); }
+      catch (e2) { console.error(e2); vidOk = false; }
+    }
     await D.put("stills", { id: g.id, stills });
+    await D.put("clips", { id: g.id, clip: g, entry: L.indexEntry(g), synced: false });
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     endReview();
     await refreshLibrary();
     await setA(g.id);
-    toast(lib.cfg ? "Saved on this device — uploading to your gist…" : "Saved on this device");
+    toast((lib.cfg ? "Saved on this device — uploading to your gist…" : "Saved on this device")
+      + (vidOk ? "" : " (video too large to keep — stills only)"), vidOk ? 2600 : 6000);
     if (lib.cfg) uploadClip(g.id).then(refreshLibrary).then(() => toast("Uploaded to your gist"))
       .catch(e => { setSyncStatus(e.message, true); toast(`Saved here; upload failed (${e.message}) — Sync now retries`, 6000); });
   } catch (e) { toastErr(e); }

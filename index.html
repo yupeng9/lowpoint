@@ -27,7 +27,7 @@
     <button class="hbtn primary" id="h-new">+ New swing</button>
     <button class="hbtn" id="h-set" title="Settings &amp; sync" aria-label="Settings and sync">⚙</button>
   </div>
-  <div class="keys"><kbd>space</kbd> play <kbd>←</kbd><kbd>→</kbd> frame <kbd>1</kbd>–<kbd>4</kbd> phases <kbd>,</kbd><kbd>.</kbd> speed <kbd>F</kbd> fix preview</div>
+  <div class="keys"><kbd>space</kbd> play <kbd>←</kbd><kbd>→</kbd> frame <kbd>1</kbd>–<kbd>4</kbd> phases <kbd>[</kbd><kbd>]</kbd> P1–P10 <kbd>,</kbd><kbd>.</kbd> speed <kbd>F</kbd> fix preview</div>
 </header>
 
 <main class="layout">
@@ -88,6 +88,8 @@
         <div class="clock" id="clock"></div>
       </div>
     </div>
+
+    <div class="strip" id="strip" aria-label="Swing positions P1 to P10"></div>
 
     <div class="review" id="review" hidden>
       <div class="rv-head"><b>Check the phases</b><span>Scrub or drag a pin, then set each phase to the frame shown. The swing is re-analyzed each time.</span></div>
@@ -169,6 +171,7 @@
 <input type="file" accept="video/*" id="new-in" class="vh">
 <input type="file" accept="video/*" id="attach-in" class="vh">
 <div class="toast" id="toast"></div>
+<script src="js/positions.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
