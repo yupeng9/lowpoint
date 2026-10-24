@@ -41,6 +41,13 @@
   .stats b { color: var(--chalk); font-variant-numeric: tabular-nums; }
   .why { font-size: 13px; color: var(--dim); margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
   .why em { color: var(--chalk); font-style: normal; font-weight: 600; }
+  .terms { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 13px; color: var(--dim); margin-bottom: 10px; }
+  .terms b { color: var(--chalk); text-transform: capitalize; }
+  .chart { display: grid; grid-template-columns: 54px repeat(5, 1fr); gap: 3px; font-size: 11px; margin-top: 10px; }
+  .chart div { padding: 6px 2px; text-align: center; border-radius: 6px; text-transform: capitalize; }
+  .chart .h { color: var(--muted); }
+  .chart .c { background: var(--panel-2); color: var(--dim); cursor: pointer; }
+  .chart .c.on { background: var(--chalk); color: var(--ink); font-weight: 700; }
   .legend { font-size: 12px; color: var(--muted); margin-top: 6px; }
   .legend i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin: 0 4px 0 10px; border-radius: 2px; }
 </style>
@@ -85,7 +92,7 @@
         <button data-f="4" data-p="4">Push</button>
         <button data-f="-4" data-p="-4">Pull</button>
         <button data-f="3" data-p="6">Push-draw</button>
-        <button data-f="6" data-p="2">Push-fade (stuck)</button>
+        <button data-f="6" data-p="2">Push-slice (stuck)</button>
       </div>
       <div class="row" style="margin-top:10px">
         <button class="btn" id="keep">＋ Keep this shot</button>
@@ -105,7 +112,7 @@
 </main>
 
 <script type="module">
-import { simulate, CLUBS, YD } from "./js/flight.js";
+import { simulate, CLUBS, YD, shapeName } from "./js/flight.js";
 
 const $ = s => document.querySelector(s);
 const st = { club: "driver", face: 2, path: -4, speed: 145, kept: [] };
@@ -192,17 +199,42 @@ function drawImpact(cur) {
   g.fillText(`face-to-path ${cur.f2p > 0 ? "+" : ""}${cur.f2p.toFixed(1)}°`, 8, 16);
 }
 
+const START_TXT = { pull: "starts left of the target", straight: "starts on the target line", push: "starts right of the target" };
+const CURVE_TXT = { hook: "curves hard left", draw: "curves gently left", none: "doesn't curve", fade: "curves gently right", slice: "curves hard right" };
+const WHY = {
+  slice: "Slice: the face is well open to the path, so the spin axis tilts right and the ball keeps bending right. Swing more from the inside (or close the face) to shrink it.",
+  fade: "Fade: the face is a little open to the path. A controlled fade is a good shot; it only becomes a slice when the gap grows.",
+  none: "No curve: face and path point the same way, so the spin axis is level.",
+  draw: "Draw: the face is a little closed to the path. A controlled draw is a good shot; it only becomes a hook when the gap grows.",
+  hook: "Hook: the face is well closed to the path. Hold the face more open or swing less in-to-out.",
+};
+// representative face/path for each cell of the shot chart (clicking a cell loads it)
+const CELL = {
+  pull: { hook: [-5, -1], draw: [-3, -1], none: [-3, -3], fade: [-2, -4.5], slice: [-1, -6] },
+  straight: { hook: [-1.5, 3], draw: [-0.5, 1.5], none: [0, 0], fade: [0.5, -1.5], slice: [1.5, -4] },
+  push: { hook: [2, 7], draw: [3, 5], none: [3, 3], fade: [4, 1.5], slice: [5, -1] },
+};
+const CURVES = ["hook", "draw", "none", "fade", "slice"], STARTS = ["pull", "straight", "push"];
+
 function explain(cur) {
-  const f2p = cur.f2p, a = Math.abs(f2p);
-  const startTxt = cur.start > 1.5 ? "starts right of the target" : cur.start < -1.5 ? "starts left of the target" : "starts near the target line";
-  const curveTxt = a < 1 ? "flies almost straight" : f2p > 0 ? `curves right (face ${a.toFixed(1)}° open to the path)` : `curves left (face ${a.toFixed(1)}° closed to the path)`;
-  let tip = "";
-  if (st.path < -1 && f2p > 2) tip = "Out-to-in path with the face open to it: classic slice. Swing more from the inside to shrink the curve.";
-  else if (st.path > 1 && f2p > 1) tip = "Path is already inside, but the face is even more open: push-fade. Square the face (grip, release, get to your lead side).";
-  else if (st.path > 1 && f2p < -1) tip = "In-to-out with the face closed to the path: draw. Too much and it becomes a hook.";
-  else if (st.path > 1 && a <= 1) tip = "Face matches the in-to-out path: the ball starts right and stays right (push).";
-  else if (st.path < -1 && f2p < -1) tip = "Out-to-in path with the face shut: pull-hook, both start and curve go left.";
-  return `The ball <em>${startTxt}</em> (start line ≈ ${CLUBS[st.club].faceWeight * 100}% face + ${Math.round((1 - CLUBS[st.club].faceWeight) * 100)}% path) and <em>${curveTxt}</em>. ${tip}`;
+  const { start, curve } = cur.parts;
+  let tip = WHY[curve];
+  if (start === "push" && (curve === "fade" || curve === "slice") && st.path > 0) tip = "Push-" + curve + ": the path is already from the inside, but the face is even more open. Square the face (grip, release, get to your lead side).";
+  if (start === "pull" && (curve === "hook" || curve === "draw")) tip = "Pull-" + curve + ": face closed and pointing left, so both the start line and the curve go left.";
+  return tip;
+}
+
+function chart(cur) {
+  let h = `<div class="chart"><div class="h"></div>${CURVES.map(c => `<div class="h">${c === "none" ? "no curve" : c}</div>`).join("")}`;
+  for (const s of STARTS) {
+    h += `<div class="h" style="text-align:right">${s === "straight" ? "on line" : s}</div>`;
+    for (const c of CURVES) {
+      const on = cur.parts.start === s && cur.parts.curve === c;
+      const nm = s === "straight" ? (c === "none" ? "straight" : c) : (c === "none" ? s : `${s}-${c}`);
+      h += `<div class="c${on ? " on" : ""}" data-s="${s}" data-c="${c}">${nm}</div>`;
+    }
+  }
+  return h + "</div>";
 }
 
 function render() {
@@ -211,16 +243,20 @@ function render() {
   $("#path-v").textContent = fmt(st.path, "in-to-out", "out-to-in");
   $("#spd-v").textContent = `${st.speed} mph`;
   const side = cur.side * YD;
+  const { start, curve } = cur.parts;
   $("#result").innerHTML = `<h2>Result</h2><div class="shape">${cur.shape}</div>
+    <div class="terms">
+      <span>Start</span><span><b>${start === "straight" ? "on line" : start}</b> — ${START_TXT[start]} (${Math.abs(cur.start).toFixed(1)}° ${cur.start >= 0 ? "right" : "left"}, set mostly by the face)</span>
+      <span>Curve</span><span><b>${curve === "none" ? "none" : curve}</b> — ${CURVE_TXT[curve]} (face ${Math.abs(cur.f2p).toFixed(1)}° ${cur.f2p >= 0 ? "open" : "closed"} to the path)</span>
+    </div>
     <div class="stats">
       <span>Carry <b>${(cur.carry * YD).toFixed(0)} yd</b></span>
-      <span>Offline <b>${Math.abs(side).toFixed(0)} yd ${side >= 0 ? "right" : "left"}</b></span>
-      <span>Start line <b>${Math.abs(cur.start).toFixed(1)}° ${cur.start >= 0 ? "R" : "L"}</b></span>
-      <span>Face-to-path <b>${cur.f2p > 0 ? "+" : ""}${cur.f2p.toFixed(1)}°</b></span>
-      <span>Spin axis <b>${Math.abs(cur.tilt).toFixed(0)}° ${cur.tilt >= 0 ? "R" : "L"}</b></span>
+      <span>Lands <b>${Math.abs(side).toFixed(0)} yd ${side >= 0 ? "right" : "left"}</b></span>
+      <span>Spin axis <b>${Math.abs(cur.tilt).toFixed(0)}° ${cur.tilt >= 0 ? "right" : "left"}</b></span>
       <span>Apex <b>${(cur.apex * YD).toFixed(0)} yd</b></span>
     </div>
-    <div class="why">${explain(cur)}</div>`;
+    <div class="why">${explain(cur)}</div>
+    ${chart(cur)}`;
   drawTop(cur); drawSide(cur); drawImpact(cur);
   st.cur = cur;
 }
@@ -237,6 +273,11 @@ $("#club").onclick = e => {
 $("#presets").onclick = e => {
   const b = e.target.closest("button"); if (!b) return;
   st.face = +b.dataset.f; st.path = +b.dataset.p; $("#face").value = st.face; $("#path").value = st.path; render();
+};
+$("#result").onclick = e => {
+  const c = e.target.closest(".c"); if (!c) return;
+  [st.face, st.path] = CELL[c.dataset.s][c.dataset.c];
+  $("#face").value = st.face; $("#path").value = st.path; render();
 };
 $("#keep").onclick = () => { st.kept.push({ r: st.cur }); if (st.kept.length > 8) st.kept.shift(); render(); };
 $("#clear").onclick = () => { st.kept = []; render(); };

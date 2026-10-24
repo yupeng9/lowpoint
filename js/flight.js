@@ -62,17 +62,24 @@ export function simulate({ face = 0, path = 0, club = "driver", speedMph, spin, 
     if (pts.length < 2 || Math.round(time / dt) % 4 === 0) pts.push(p.slice());
   }
   const land = pts[pts.length - 1];
-  return { pts, carry: land[0], side: land[1], apex, time, start, f2p, tilt, shape: shapeName(start, f2p) };
+  return { pts, carry: land[0], side: land[1], apex, time, start, f2p, tilt, shape: shapeName(start, f2p), parts: shotParts(start, f2p) };
 }
 
-/** e.g. "push-slice", "pull-draw", "straight". */
-export function shapeName(start, f2p) {
-  const dir = start > 1.5 ? "push" : start < -1.5 ? "pull" : "";
+/** Golf terms for the two parts of a shot.
+ *  start: "pull" (starts left) | "straight" | "push" (starts right)
+ *  curve: "hook" (big curve left) | "draw" | "none" | "fade" | "slice" (big curve right) */
+export function shotParts(start, f2p) {
+  const s = start > 1.5 ? "push" : start < -1.5 ? "pull" : "straight";
   const a = Math.abs(f2p);
-  const curve = a < 1 ? "" : f2p > 0 ? (a >= 4 ? "slice" : "fade") : (a >= 4 ? "hook" : "draw");
-  if (!dir && !curve) return "straight";
-  if (!curve) return dir;
-  return dir ? `${dir}-${curve}` : curve;
+  const c = a < 1 ? "none" : f2p > 0 ? (a >= 4 ? "slice" : "fade") : (a >= 4 ? "hook" : "draw");
+  return { start: s, curve: c };
+}
+
+/** e.g. "push-slice", "pull-hook", "fade", "push", "straight". */
+export function shapeName(start, f2p) {
+  const { start: s, curve: c } = shotParts(start, f2p);
+  if (s === "straight") return c === "none" ? "straight" : c;
+  return c === "none" ? s : `${s}-${c}`;
 }
 
 export const YD = 1.09361;
