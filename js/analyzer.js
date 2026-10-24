@@ -496,6 +496,8 @@ export function guideRanges(view, club, key, rng) {
   return null;
 }
 
+export const LEAD_ARM_MIN_VIS = 0.7;
+
 export function guidelines(R) {
   const M = R.phases, view = R.view, club = R.club;
   const rows = [];
@@ -508,8 +510,12 @@ export function guidelines(R) {
     else val = m[key];
     if (val === undefined || val === null) continue;
     const [g0, g1, w0, w1] = guideRanges(view, club, key, rng);
-    const st = g0 <= val && val <= g1 ? "good" : (w0 <= val && val <= w1 ? "warn" : "bad");
-    rows.push({ phase: ph, key, label, unit, value: pyRound(val, 2), good: [g0, g1], warn: [w0, w1], status: st, note });
+    let st = g0 <= val && val <= g1 ? "good" : (w0 <= val && val <= w1 ? "warn" : "bad"), nt = note;
+    const vis = key === "lead_elbow_deg" ? (m.lead_arm_visibility ?? 1) : 1;
+    if (vis < LEAD_ARM_MIN_VIS) {   // arm hidden behind the body: the tracker only guesses it
+      st = "na"; nt = `Lead arm hidden from this camera angle (tracker confidence ${vis.toFixed(2)}) - not measured`;
+    }
+    rows.push({ phase: ph, key, label, unit, value: pyRound(val, 2), good: [g0, g1], warn: [w0, w1], status: st, note: nt });
   }
   return rows;
 }

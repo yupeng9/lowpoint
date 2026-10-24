@@ -261,6 +261,7 @@ select {
 .mrow .t { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .mrow .t span { font-size: 13.5px; }
 .mrow .v { font-family: var(--mono); font-size: 14px; }
+.mrow .v.na { color: var(--mute, #8a8f98); font-weight: 500; }
 .mrow .v.good { color: var(--ok); } .mrow .v.warn { color: var(--amber); } .mrow .v.bad { color: var(--flag); }
 .mrow .v small { color: var(--ref); margin-left: 8px; font-size: 12px; }
 .mrow .note { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
@@ -486,3 +487,6 @@ body.sheet-open .scrim, body.lib-open .scrim { opacity: 1; pointer-events: auto;
   .stage-wrap { align-items: flex-start; }
   .rv-head span { display: none; }
 }
+
+.flightlink { color: var(--chalk-dim); font-size: 13px; text-decoration: none; border: 1px solid var(--line); padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+.flightlink:hover { color: var(--chalk); }

@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b130f">
+<title>Lowpoint · ball flight lab</title>
+<link rel="icon" href="icons/favicon-32.png">
+<style>
+  :root { --ink:#0b130f; --turf:#101c16; --panel:#142219; --panel-2:#1a2b21; --line:#24382c; --chalk:#ece6d6;
+          --dim:#b9b3a3; --muted:#7e8c82; --ok:#5ee26f; --flag:#ff4b3e; --amber:#f2b33d; --ref:#6fd8ff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--ink); color: var(--chalk); font: 15px/1.4 -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif; }
+  header { display: flex; align-items: baseline; gap: 12px; padding: 12px 18px calc(10px) max(18px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 19px; letter-spacing: .02em; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  header a { margin-left: auto; color: var(--dim); font-size: 13px; text-decoration: none; border: 1px solid var(--line); padding: 4px 10px; border-radius: 999px; }
+  main { display: grid; grid-template-columns: 340px 1fr; gap: 14px; padding: 14px 18px 24px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 10px; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+  .controls { display: flex; flex-direction: column; gap: 14px; }
+  .seg { display: flex; background: var(--panel-2); border-radius: 10px; padding: 3px; }
+  .seg button { flex: 1; background: none; border: 0; color: var(--dim); padding: 8px; border-radius: 8px; font: inherit; cursor: pointer; }
+  .seg button.on { background: var(--line); color: var(--chalk); font-weight: 600; }
+  .ctl label { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--dim); }
+  .ctl label b { color: var(--chalk); font-size: 17px; font-variant-numeric: tabular-nums; }
+  .ctl .hint { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  input[type=range] { width: 100%; accent-color: var(--ok); height: 30px; }
+  .face input { accent-color: var(--amber); } .path input { accent-color: var(--ref); }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .presets button, .btn { background: var(--panel-2); color: var(--chalk); border: 1px solid var(--line); border-radius: 999px; padding: 6px 11px; font: inherit; font-size: 13px; cursor: pointer; }
+  .presets button.you { border-color: var(--flag); } .presets button.fix { border-color: var(--ok); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .views { display: grid; grid-template-columns: 1fr 300px; grid-template-rows: auto auto; gap: 14px; }
+  @media (max-width: 1100px) { .views { grid-template-columns: 1fr; } }
+  .views .top { grid-row: span 2; }
+  canvas { width: 100%; display: block; border-radius: 10px; background: var(--turf); touch-action: none; }
+  h2 { margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }
+  .shape { font-size: 26px; font-weight: 700; text-transform: capitalize; margin: 2px 0 6px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 13px; color: var(--dim); }
+  .stats b { color: var(--chalk); font-variant-numeric: tabular-nums; }
+  .why { font-size: 13px; color: var(--dim); margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .why em { color: var(--chalk); font-style: normal; font-weight: 600; }
+  .legend { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin: 0 4px 0 10px; border-radius: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ball flight lab</h1><span class="sub">face + path → start line + curve (right-handed)</span>
+  <a href="./">← swing room</a>
+</header>
+<main>
+  <section class="controls">
+    <div class="card">
+      <h2>Club</h2>
+      <div class="seg" id="club"><button data-v="driver" class="on">Driver</button><button data-v="iron7">7-iron</button></div>
+    </div>
+    <div class="card">
+      <div class="ctl face">
+        <label>Club face at impact <b id="face-v"></b></label>
+        <input id="face" type="range" min="-10" max="10" step="0.5" value="2">
+        <div class="hint"><span>◀ closed (left)</span><span>square</span><span>open (right) ▶</span></div>
+      </div>
+      <div class="ctl path" style="margin-top:12px">
+        <label>Club path <b id="path-v"></b></label>
+        <input id="path" type="range" min="-10" max="10" step="0.5" value="-4">
+        <div class="hint"><span>◀ out-to-in</span><span>neutral</span><span>in-to-out ▶</span></div>
+      </div>
+      <div class="ctl" style="margin-top:12px">
+        <label>Ball speed <b id="spd-v"></b></label>
+        <input id="spd" type="range" min="70" max="180" step="1" value="145">
+      </div>
+    </div>
+    <div class="card">
+      <h2>Presets</h2>
+      <div class="presets" id="presets">
+        <button class="you" data-f="2" data-p="-4">Your driver now (over the top)</button>
+        <button class="fix" data-f="0" data-p="2">Goal: path from inside</button>
+        <button data-f="0" data-p="0">Straight</button>
+        <button data-f="1" data-p="-2">Fade</button>
+        <button data-f="-1" data-p="2">Draw</button>
+        <button data-f="5" data-p="-4">Slice</button>
+        <button data-f="-4" data-p="4">Hook</button>
+        <button data-f="4" data-p="4">Push</button>
+        <button data-f="-4" data-p="-4">Pull</button>
+        <button data-f="3" data-p="6">Push-draw</button>
+        <button data-f="6" data-p="2">Push-fade (stuck)</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="keep">＋ Keep this shot</button>
+        <button class="btn" id="clear">Clear kept</button>
+      </div>
+    </div>
+    <div class="card" id="result"></div>
+  </section>
+
+  <section class="views">
+    <div class="card top"><h2>From above</h2><canvas id="cv-top"></canvas>
+      <div class="legend"><i style="background:#fff"></i>current shot<i style="background:#ffffff55"></i>kept shots<i style="background:var(--amber)"></i>start line (face)</div></div>
+    <div class="card"><h2>At impact (from above)</h2><canvas id="cv-imp"></canvas>
+      <div class="legend"><i style="background:var(--ref)"></i>path<i style="background:var(--amber)"></i>face</div></div>
+    <div class="card"><h2>From the side</h2><canvas id="cv-side"></canvas></div>
+  </section>
+</main>
+
+<script type="module">
+import { simulate, CLUBS, YD } from "./js/flight.js";
+
+const $ = s => document.querySelector(s);
+const st = { club: "driver", face: 2, path: -4, speed: 145, kept: [] };
+const fmt = (v, pos, neg) => v === 0 ? "0°" : `${Math.abs(v).toFixed(1).replace(/\.0$/, "")}° ${v > 0 ? pos : neg}`;
+
+function canvasCtx(cv, aspect) {
+  const w = cv.clientWidth, h = Math.round(w * aspect), dpr = devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.height = h + "px"; }
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  return { g, w, h };
+}
+
+function drawTop(cur) {
+  const cv = $("#cv-top");
+  const { g, w, h } = canvasCtx(cv, innerWidth < 860 ? 1.25 : 0.95);
+  const maxX = (st.club === "driver" ? 300 : 210) / YD;          // metres shown downrange
+  const sc = (h - 40) / maxX, cx = w / 2, by = h - 20;
+  const X = p => [cx + p[1] * sc, by - p[0] * sc];
+  // fairway, target line, yardage
+  const fw = (st.club === "driver" ? 35 : 25) / YD * sc;
+  g.fillStyle = "#16301f"; g.fillRect(cx - fw / 2, 0, fw, h);
+  g.strokeStyle = "#ffffff22"; g.setLineDash([6, 6]); g.beginPath(); g.moveTo(cx, by); g.lineTo(cx, 0); g.stroke(); g.setLineDash([]);
+  g.fillStyle = "#7e8c82"; g.font = "11px -apple-system, sans-serif";
+  for (let yd = 50; yd * 1 / YD < maxX; yd += 50) {
+    const y = by - (yd / YD) * sc;
+    g.strokeStyle = "#ffffff12"; g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
+    g.fillText(`${yd} yd`, 6, y - 3);
+  }
+  for (let yd = -40; yd <= 40; yd += 20) if (yd) {
+    const x = cx + (yd / YD) * sc; if (x < 0 || x > w) continue;
+    g.fillText(`${Math.abs(yd)}${yd < 0 ? "L" : "R"}`, x - 8, by + 14);
+  }
+  // start line (where the face sends the ball)
+  const a = cur.start * Math.PI / 180, L = maxX * 0.9;
+  g.strokeStyle = "#f2b33d"; g.lineWidth = 1.5; g.setLineDash([4, 5]);
+  g.beginPath(); g.moveTo(...X([0, 0])); g.lineTo(...X([L * Math.cos(a), L * Math.sin(a)])); g.stroke(); g.setLineDash([]);
+  const path = (r, col, lw) => {
+    g.strokeStyle = col; g.lineWidth = lw; g.lineJoin = "round"; g.beginPath();
+    r.pts.forEach((p, i) => (i ? g.lineTo(...X(p)) : g.moveTo(...X(p)))); g.stroke();
+    const e = X(r.pts[r.pts.length - 1]); g.fillStyle = col; g.beginPath(); g.arc(e[0], e[1], lw + 2, 0, 7); g.fill();
+  };
+  st.kept.forEach(k => path(k.r, "#ffffff55", 2));
+  path(cur, "#ffffff", 3.5);
+  const e = X(cur.pts[cur.pts.length - 1]);
+  g.fillStyle = "#ece6d6"; g.font = "600 13px -apple-system, sans-serif";
+  const side = cur.side * YD, txt = `${(cur.carry * YD).toFixed(0)} yd, ${Math.abs(side).toFixed(0)} yd ${side >= 0 ? "right" : "left"}`;
+  g.fillText(txt, Math.min(w - g.measureText(txt).width - 6, Math.max(6, e[0] + 10)), e[1] + 4);
+  g.fillStyle = "#ece6d6"; g.beginPath(); g.arc(cx, by, 4, 0, 7); g.fill();
+}
+
+function drawSide(cur) {
+  const { g, w, h } = canvasCtx($("#cv-side"), 0.5);
+  const maxX = (st.club === "driver" ? 300 : 210) / YD, sc = Math.min((w - 20) / maxX, (h - 20) / 45 * 1.0);
+  const X = p => [10 + p[0] * sc, h - 10 - p[2] * sc];
+  g.strokeStyle = "#ffffff22"; g.beginPath(); g.moveTo(0, h - 10); g.lineTo(w, h - 10); g.stroke();
+  st.kept.forEach(k => { g.strokeStyle = "#ffffff44"; g.lineWidth = 1.5; g.beginPath(); k.r.pts.forEach((p, i) => (i ? g.lineTo(...X(p)) : g.moveTo(...X(p)))); g.stroke(); });
+  g.strokeStyle = "#fff"; g.lineWidth = 2.5; g.beginPath(); cur.pts.forEach((p, i) => (i ? g.lineTo(...X(p)) : g.moveTo(...X(p)))); g.stroke();
+  g.fillStyle = "#7e8c82"; g.font = "11px -apple-system, sans-serif";
+  g.fillText(`apex ${(cur.apex * YD).toFixed(0)} yd · ${cur.time.toFixed(1)} s in the air`, 12, 16);
+}
+
+function drawImpact(cur) {
+  const { g, w, h } = canvasCtx($("#cv-imp"), 0.8);
+  const cx = w / 2, cy = h * 0.6, R = Math.min(w, h) * 0.42, k = 3;   // angles exaggerated ×3 so they're visible
+  g.strokeStyle = "#ffffff30"; g.setLineDash([5, 5]); g.beginPath(); g.moveTo(cx, h); g.lineTo(cx, 0); g.stroke(); g.setLineDash([]);
+  g.fillStyle = "#7e8c82"; g.font = "11px -apple-system, sans-serif"; g.fillText("target ↑", cx + 6, 14);
+  g.fillText("angles drawn ×3", 8, h - 8);
+  // path arrow: club travels along `path`
+  const pa = st.path * k * Math.PI / 180;
+  const p0 = [cx - Math.sin(pa) * R, cy + Math.cos(pa) * R], p1 = [cx + Math.sin(pa) * R * 0.55, cy - Math.cos(pa) * R * 0.55];
+  g.strokeStyle = "#6fd8ff"; g.fillStyle = "#6fd8ff"; g.lineWidth = 3;
+  g.beginPath(); g.moveTo(...p0); g.lineTo(...p1); g.stroke();
+  const ah = Math.atan2(p1[1] - p0[1], p1[0] - p0[0]);
+  g.beginPath(); g.moveTo(...p1); g.lineTo(p1[0] - 12 * Math.cos(ah - 0.4), p1[1] - 12 * Math.sin(ah - 0.4)); g.lineTo(p1[0] - 12 * Math.cos(ah + 0.4), p1[1] - 12 * Math.sin(ah + 0.4)); g.fill();
+  // face: a line perpendicular to where it points; a short arrow shows face direction
+  const fa = st.face * k * Math.PI / 180, fl = R * 0.45;
+  const n = [Math.sin(fa), -Math.cos(fa)], t = [Math.cos(fa), Math.sin(fa)];
+  g.strokeStyle = "#f2b33d"; g.lineWidth = 7; g.lineCap = "round";
+  g.beginPath(); g.moveTo(cx - t[0] * fl, cy - t[1] * fl); g.lineTo(cx + t[0] * fl, cy + t[1] * fl); g.stroke();
+  g.lineWidth = 2; g.setLineDash([3, 4]); g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + n[0] * R * 0.75, cy + n[1] * R * 0.75); g.stroke(); g.setLineDash([]);
+  g.lineCap = "butt";
+  g.fillStyle = "#ece6d6"; g.beginPath(); g.arc(cx + n[0] * 9, cy + n[1] * 9, 6, 0, 7); g.fill();
+  g.font = "600 12px -apple-system, sans-serif"; g.fillStyle = "#ece6d6";
+  g.fillText(`face-to-path ${cur.f2p > 0 ? "+" : ""}${cur.f2p.toFixed(1)}°`, 8, 16);
+}
+
+function explain(cur) {
+  const f2p = cur.f2p, a = Math.abs(f2p);
+  const startTxt = cur.start > 1.5 ? "starts right of the target" : cur.start < -1.5 ? "starts left of the target" : "starts near the target line";
+  const curveTxt = a < 1 ? "flies almost straight" : f2p > 0 ? `curves right (face ${a.toFixed(1)}° open to the path)` : `curves left (face ${a.toFixed(1)}° closed to the path)`;
+  let tip = "";
+  if (st.path < -1 && f2p > 2) tip = "Out-to-in path with the face open to it: classic slice. Swing more from the inside to shrink the curve.";
+  else if (st.path > 1 && f2p > 1) tip = "Path is already inside, but the face is even more open: push-fade. Square the face (grip, release, get to your lead side).";
+  else if (st.path > 1 && f2p < -1) tip = "In-to-out with the face closed to the path: draw. Too much and it becomes a hook.";
+  else if (st.path > 1 && a <= 1) tip = "Face matches the in-to-out path: the ball starts right and stays right (push).";
+  else if (st.path < -1 && f2p < -1) tip = "Out-to-in path with the face shut: pull-hook, both start and curve go left.";
+  return `The ball <em>${startTxt}</em> (start line ≈ ${CLUBS[st.club].faceWeight * 100}% face + ${Math.round((1 - CLUBS[st.club].faceWeight) * 100)}% path) and <em>${curveTxt}</em>. ${tip}`;
+}
+
+function render() {
+  const cur = simulate({ face: st.face, path: st.path, club: st.club, speedMph: st.speed });
+  $("#face-v").textContent = fmt(st.face, "open", "closed");
+  $("#path-v").textContent = fmt(st.path, "in-to-out", "out-to-in");
+  $("#spd-v").textContent = `${st.speed} mph`;
+  const side = cur.side * YD;
+  $("#result").innerHTML = `<h2>Result</h2><div class="shape">${cur.shape}</div>
+    <div class="stats">
+      <span>Carry <b>${(cur.carry * YD).toFixed(0)} yd</b></span>
+      <span>Offline <b>${Math.abs(side).toFixed(0)} yd ${side >= 0 ? "right" : "left"}</b></span>
+      <span>Start line <b>${Math.abs(cur.start).toFixed(1)}° ${cur.start >= 0 ? "R" : "L"}</b></span>
+      <span>Face-to-path <b>${cur.f2p > 0 ? "+" : ""}${cur.f2p.toFixed(1)}°</b></span>
+      <span>Spin axis <b>${Math.abs(cur.tilt).toFixed(0)}° ${cur.tilt >= 0 ? "R" : "L"}</b></span>
+      <span>Apex <b>${(cur.apex * YD).toFixed(0)} yd</b></span>
+    </div>
+    <div class="why">${explain(cur)}</div>`;
+  drawTop(cur); drawSide(cur); drawImpact(cur);
+  st.cur = cur;
+}
+
+$("#face").oninput = e => { st.face = +e.target.value; render(); };
+$("#path").oninput = e => { st.path = +e.target.value; render(); };
+$("#spd").oninput = e => { st.speed = +e.target.value; render(); };
+$("#club").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  st.club = b.dataset.v; st.kept = [];
+  document.querySelectorAll("#club button").forEach(x => x.classList.toggle("on", x === b));
+  st.speed = CLUBS[st.club].speedMph; $("#spd").value = st.speed; render();
+};
+$("#presets").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  st.face = +b.dataset.f; st.path = +b.dataset.p; $("#face").value = st.face; $("#path").value = st.path; render();
+};
+$("#keep").onclick = () => { st.kept.push({ r: st.cur }); if (st.kept.length > 8) st.kept.shift(); render(); };
+$("#clear").onclick = () => { st.kept = []; render(); };
+addEventListener("resize", render);
+render();
+</script>
+</body>
+</html>

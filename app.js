@@ -900,6 +900,10 @@ function renderInsight() {
   let lastPh = null;
   for (const g of A.guides) {
     if (g.phase !== lastPh) { nh += `<div class="phhead">${g.phase}</div>`; lastPh = g.phase; }
+    if (g.status === "na") {   // not measurable from this camera angle: no value, no bar
+      nh += `<div class="mrow na"><div class="t"><span>${esc(g.label)}</span><span class="v na">not visible</span></div><div class="note">${esc(g.note)}</div></div>`;
+      continue;
+    }
     const lo = Math.min(g.warn[0], g.value, bmap[g.key]?.value ?? Infinity), hi = Math.max(g.warn[1], g.value, bmap[g.key]?.value ?? -Infinity);
     const pad = (hi - lo) * 0.12 || 1, x0 = lo - pad, span = hi + pad - x0, pc = v => `${((v - x0) / span) * 100}%`;
     const wid = (a, b) => `${((b - a) / span) * 100}%`;
